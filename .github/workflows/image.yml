@@ -1,0 +1,96 @@
+# Builds ghcr.io/miarec/sipp:<SIPp version>-ubuntu<Ubuntu version> for amd64
+# and arm64, smoke-tests it, and pushes it from master. See README.md.
+name: Image
+"on":
+  pull_request:
+  push:
+    branches:
+      - master
+    paths:
+      - .dockerignore
+      - .github/workflows/image.yml
+      - Dockerfile
+      - build.sh
+      - tests/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/sipp
+  # Push only from master: on pushes and on manual runs. Pull requests and
+  # manual runs on other branches only build and test.
+  PUSH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      TAG_SUFFIX: -${{ matrix.arch }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Build image
+        run: echo "TAG=$(./build.sh)" >> "$GITHUB_ENV"
+        env:
+          IMAGE_REVISION: ${{ github.sha }}
+
+      - name: Smoke test image
+        run: tests/smoke-test.sh "$TAG"
+
+      - name: Log in to GitHub Container Registry
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: env.PUSH == 'true'
+        run: docker push "$TAG"
+
+  manifest:
+    name: manifest
+    needs: build
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push the multi-arch manifest
+        run: |
+          tag=$(./build.sh --print-tag)
+          docker buildx imagetools create --tag "$tag" "$tag-amd64" "$tag-arm64"
+          docker buildx imagetools inspect "$tag"

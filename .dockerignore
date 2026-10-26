@@ -1,0 +1,2 @@
+# The Dockerfile downloads the SIPp source and copies nothing from the context.
+*
