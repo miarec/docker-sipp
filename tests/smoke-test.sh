@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Smoke test of a SIPp image: the tools are there, and SIPp sends rtp_stream
-# RTP at the full rate for several calls at once.
+# Smoke test of a SIPp image: the tools are there, SIPp makes a TCP connection
+# again when its peer closed it, and SIPp sends rtp_stream RTP at the full rate
+# for several calls at once.
+#
+# The reconnection: a SIPp UAC calls a SIPp UAS over TCP, with
+# -reconnect_close false and the message trace (-trace_msg). The UAS restarts
+# during the call, which closes the connection. The UAC must send its BYE on a
+# new connection. Without /etc/localtime, the message trace makes SIPp 3.8.0
+# fail the BYE instead: see "Known issues" in README.md.
 #
 # A SIPp UAC calls a SIPp UAS on a Docker network of its own. Each call loops
 # an A-law WAV file with <exec rtp_stream> for TALK_SECONDS. tcpdump runs in
@@ -32,7 +39,7 @@ work=$(mktemp -d)
 rtp_ports=20000-20999
 
 cleanup() {
-  docker rm --force "$name-capture" "$name-uas" >/dev/null 2>&1 || true
+  docker rm --force "$name-capture" "$name-uas" "$name-callee" "$name-caller" >/dev/null 2>&1 || true
   docker network rm "$name" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -55,6 +62,55 @@ for feature in TLS SCTP PCAP; do
   fi
 done
 
+echo "==> A TCP connection that the peer closed during a call"
+docker network create "$name" >/dev/null
+# The callee answers the call, and after its restart, the BYE: a file in the
+# container, which a restart keeps, tells the two apart.
+docker run --detach --name "$name-callee" --network "$name" --network-alias callee \
+  --volume "$scenarios:/scenarios:ro" \
+  "$image" \
+  sh -c 'if [ -e /tmp/restarted ]; then
+           exec sipp -sf /scenarios/uas-bye.xml -t t1 -m 1 -nostdin
+         fi
+         touch /tmp/restarted
+         exec sipp -sf /scenarios/uas.xml -t t1 -nostdin' \
+  >/dev/null
+# Port 5060 is 13C4 in /proc/net/tcp, and state 0A is LISTEN.
+for _ in $(seq 50); do
+  if docker exec "$name-callee" grep -q ':13C4 00000000:0000 0A' /proc/net/tcp 2>/dev/null; then
+    break
+  fi
+  sleep 0.2
+done
+docker run --detach --name "$name-caller" --network "$name" \
+  --volume "$scenarios:/scenarios:ro" \
+  "$image" \
+  sipp callee:5060 -sf /scenarios/uac-reconnect.xml -t tn -m 1 -d 6000 \
+    -reconnect_close false -max_reconnect 1 -reconnect_sleep 500 \
+    -trace_msg -message_file /tmp/messages.log \
+    -timeout 30s -timeout_error -nostdin \
+  >/dev/null
+for _ in $(seq 50); do
+  if docker exec "$name-caller" grep -q '^ACK ' /tmp/messages.log 2>/dev/null; then
+    break
+  fi
+  sleep 0.2
+done
+if ! docker exec "$name-caller" grep -q '^ACK ' /tmp/messages.log 2>/dev/null; then
+  echo "FAIL: the call did not start" >&2
+  docker logs --tail 40 "$name-caller" >&2 2>&1
+  exit 1
+fi
+docker restart --time 1 "$name-callee" >/dev/null
+if [[ $(docker wait "$name-caller") -ne 0 ]]; then
+  echo "FAIL: the caller did not send its BYE on a new connection" >&2
+  docker logs --tail 40 "$name-caller" >&2 2>&1
+  echo "--- Messages of the caller" >&2
+  docker cp "$name-caller:/tmp/messages.log" - | tar -xO >&2
+  exit 1
+fi
+echo "PASS: the caller sent its BYE on a new connection"
+
 # One second of G.711 A-law silence (0xD5), mono, 8 kHz: WAVE format 6.
 python3 -I - "$work/alaw.wav" <<'EOF'
 import struct
@@ -71,7 +127,6 @@ chmod 755 "$work"
 chmod 644 "$work/alaw.wav"
 
 echo "==> ${calls} calls of ${talk} s with rtp_stream"
-docker network create "$name" >/dev/null
 docker run --detach --name "$name-uas" --network "$name" --network-alias uas \
   --volume "$scenarios:/scenarios:ro" \
   "$image" \

@@ -63,6 +63,9 @@ ARG SIPP_VERSION
 # The runtime libraries of SIPp (libtinfo and libncursesw are already in the
 # base image), tcpdump to capture packets in the container, and tini to run
 # as PID 1. The base image has sh, getent, hostname, tail, stat, and base64.
+# tzdata gives the image /etc/localtime, for UTC. Without it, SIPp fails a
+# send on a TCP connection that the peer closed instead of making the
+# connection again: see "Known issues" in README.md.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -72,6 +75,7 @@ RUN apt-get update \
         libssl3t64 \
         tcpdump \
         tini \
+        tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/build/sipp /usr/local/bin/sipp
