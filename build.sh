@@ -2,7 +2,7 @@
 # Build the SIPp image for the platform of this host.
 #
 # The tag is <IMAGE>:<SIPp version>-ubuntu<Ubuntu version without the dot>,
-# for example ghcr.io/miarec/sipp:3.7.9-ubuntu2404. The versions come from the
+# for example ghcr.io/miarec/sipp:3.8.0-ubuntu2404. The versions come from the
 # ARG lines at the top of the Dockerfile.
 #
 # Usage: ./build.sh              build the image and print its tag

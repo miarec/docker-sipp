@@ -2,11 +2,11 @@
 #
 # The versions below are the only place that defines them. build.sh reads them
 # to name the image <SIPP_VERSION>-ubuntu<UBUNTU_VERSION without the dot>, for
-# example 3.7.9-ubuntu2404. To bump SIPp, change SIPP_VERSION and SIPP_SHA256
+# example 3.8.0-ubuntu2404. To bump SIPp, change SIPP_VERSION and SIPP_SHA256
 # together: see "Bump the SIPp version" in README.md.
 ARG UBUNTU_VERSION=24.04
-ARG SIPP_VERSION=3.7.9
-ARG SIPP_SHA256=764f4f06472cd930401a026ff44ea3b74c5dea68258ef56ece225b369c63f566
+ARG SIPP_VERSION=3.8.0
+ARG SIPP_SHA256=a3e3993bf9369caaae1f5366507d429acb9669dcf678cfacfd01c907102f74c3
 
 FROM ubuntu:${UBUNTU_VERSION} AS build
 ARG SIPP_VERSION
@@ -41,9 +41,10 @@ RUN curl -fsSL -o sipp.tar.gz \
 
 # The same features as Ubuntu's sip-tester package: TLS (always on, OpenSSL
 # here), SCTP, PCAP playback, and GSL distributions, with Debian's hardening
-# flags. The release tarball has no bundled GTest, so the unit tests use
-# Ubuntu's libgtest-dev.
-RUN eval "$(DEB_BUILD_MAINT_OPTIONS=hardening=+all dpkg-buildflags --export=sh)" \
+# flags, without link-time optimization: see "Known issues" in README.md.
+# The release tarball has no bundled GTest, so the unit tests use Ubuntu's
+# libgtest-dev.
+RUN eval "$(DEB_BUILD_MAINT_OPTIONS="hardening=+all optimize=-lto" dpkg-buildflags --export=sh)" \
     && cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DUSE_SCTP=1 \
