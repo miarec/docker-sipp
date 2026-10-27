@@ -8,9 +8,9 @@ A Docker image of [SIPp](https://github.com/SIPp/sipp), built from the upstream 
 ghcr.io/miarec/sipp:<SIPp version>-<base>
 ```
 
-For example, `ghcr.io/miarec/sipp:3.7.9-ubuntu2404` is SIPp 3.7.9 on Ubuntu 24.04. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.7.9-ubuntu2404-arm64`, are intermediate build results. Don't use them.
+For example, `ghcr.io/miarec/sipp:3.8.0-ubuntu2404` is SIPp 3.8.0 on Ubuntu 24.04. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-ubuntu2404-arm64`, are intermediate build results. Don't use them.
 
-The workflow pushes the tag again on each change to `master`, so the tag also gets the latest Ubuntu security updates.
+The workflow pushes the tag of the current version again on each change to `master`, so that tag also gets the latest Ubuntu security updates. The tags of earlier versions stay in the registry, but no longer get updates.
 
 ## What the image contains
 
@@ -26,7 +26,7 @@ The default command is `sleep infinity`. It keeps the container running, so that
 Run SIPp directly:
 
 ```bash
-docker run --rm --network host ghcr.io/miarec/sipp:3.7.9-ubuntu2404 \
+docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-ubuntu2404 \
   sipp 192.0.2.10:5060 -sn uac -m 1
 ```
 
@@ -37,19 +37,19 @@ Or start a long-running container and run SIPp in it:
 ```bash
 docker run --detach --name sipp --network host \
   --volume "$PWD/scenarios:/scenarios:ro" \
-  ghcr.io/miarec/sipp:3.7.9-ubuntu2404
+  ghcr.io/miarec/sipp:3.8.0-ubuntu2404
 docker exec sipp sipp 192.0.2.10:5060 -sf /scenarios/uac.xml -m 1
 ```
 
 To capture packets in the container, run `tcpdump`. It needs the `NET_RAW` capability, which Docker grants by default.
 
-## Why SIPp 3.7.9 and not Ubuntu's package
+## Why SIPp 3.8.0 and not Ubuntu's package
 
 Ubuntu 24.04 packages SIPp 3.7.2 as `sip-tester`. SIPp 3.7.0 to 3.7.2 limit how fast one process sends `rtp_stream` RTP. After each packet, `rtpstream_playrtptask()` in `src/rtpstream.cpp` waits in `select()` for up to 10 ms, and it holds the process-wide `uacAudioMutex` while it waits. One SIPp process therefore sends at most about 100 `rtp_stream` packets a second in total, whatever the number of calls or `-rtp_threadtasks`. A call with a 20 ms packet time needs 50 packets a second, so more than two calls at once get less than that.
 
-SIPp 3.7.3 fixed the bug in commit [54f008c6](https://github.com/SIPp/sipp/commit/54f008c6ea94806535bbc052bdfc9da69e1c9ad8), "Don't block on select() in rtpstream_playrtptask". This image uses SIPp 3.7.9, a later bug-fix release.
+SIPp 3.7.3 fixed the bug in commit [54f008c6](https://github.com/SIPp/sipp/commit/54f008c6ea94806535bbc052bdfc9da69e1c9ad8), "Don't block on select() in rtpstream_playrtptask". The smoke test proves that the bug is absent: see [Test the image](#test-the-image).
 
-The smoke test proves that the bug is absent: see [Test the image](#test-the-image).
+SIPp 3.7.9 stops a call's `rtp_stream` RTP for good after an ICMP port unreachable. SIPp's RTP socket is a connected UDP socket, so the kernel reports the ICMP error of one packet on the next `send()`, as `ECONNREFUSED`. SIPp 3.7.9 takes that error as permanent, and closes the socket. The call then sends no RTP, also after a re-INVITE gives SIPp a new remote port. This happens when the peer closes its media port during the call, for example when an SBC deletes the call after a media timeout and a re-INVITE creates it again. SIPp 3.8.0 fixed the bug in commit [ef2d956](https://github.com/SIPp/sipp/commit/ef2d9564fb694befaba05f326ff81110b81aa97b), "rtp_stream: go on playing when the peer's port is not open yet": it sends the packet again. This image uses SIPp 3.8.0.
 
 ## Build the image
 
@@ -76,7 +76,7 @@ The build downloads the release tarball of SIPp, checks its SHA-256 hash, builds
 You need Docker, Bash, and Python 3.
 
 ```bash
-tests/smoke-test.sh ghcr.io/miarec/sipp:3.7.9-ubuntu2404
+tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-ubuntu2404
 ```
 
 The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support. Then it proves that SIPp sends RTP at the full rate for several calls at once:
@@ -113,16 +113,28 @@ The first push creates the GHCR package `miarec/sipp`. After the first push, che
 2. Get the SHA-256 hash of its source tarball, `sipp-<version>.tar.gz`. GitHub shows it as the digest of the release asset:
 
    ```bash
-   gh release view v3.7.9 --repo SIPp/sipp --json assets \
+   gh release view v3.8.0 --repo SIPp/sipp --json assets \
      --jq '.assets[] | select(.name | endswith(".tar.gz")) | .digest'
    ```
 
    To check the hash yourself, download the tarball and run `sha256sum` on it.
 3. In the `Dockerfile`, change `SIPP_VERSION` and `SIPP_SHA256` together.
-4. Read the release notes for changes to the CMake options.
+4. Read the release notes for changes to the CMake options, and check whether the release fixes a [known issue](#known-issues). Remove the workaround of an issue that the release fixes.
 5. Build and test the image locally, and then open a pull request. The merge to `master` publishes the new tag. The tags of earlier versions stay in the registry.
 
 To change the Ubuntu version, change `UBUNTU_VERSION`. Check the names of the runtime library packages in the `Dockerfile`, because they can change between Ubuntu releases. For example, Ubuntu 24.04 renamed `libssl3` to `libssl3t64`.
+
+## Known issues
+
+### SIPp 3.8.0's unit tests don't link with link-time optimization
+
+The `Dockerfile` builds SIPp with Debian's hardening flags from `dpkg-buildflags`, but turns off link-time optimization (LTO) with `optimize=-lto`. Ubuntu 24.04's `dpkg-buildflags` turns LTO on by default (`-flto=auto`), and SIPp's own build doesn't use it.
+
+With LTO, the link of SIPp 3.8.0's unit tests, `sipp_unittest`, fails. GCC checks the C++ One Definition Rule across the source files at link time, and finds two different types named `SrtpSuite`: one in `src/call.cpp`, the table of SRTP suites that SIPp uses, and one in the unit tests of `src/jlsrtp.cpp`, inside `#ifdef GTEST`. GCC reports it as a `-Wodr` warning, and SIPp's `CMakeLists.txt` builds with `-Werror`, so the warning stops the build. The `sipp` binary has only the first type, and links with LTO too, but the image build runs the unit tests, so it needs both to link.
+
+Without LTO, the build is the same as SIPp's own build. The shipped `sipp` binary loses the cross-file optimization of LTO, which doesn't matter for a test tool.
+
+A SIPp release that renames the test type, or puts it in an anonymous namespace, fixes it. Then remove `optimize=-lto` from the `Dockerfile`.
 
 ## License
 
