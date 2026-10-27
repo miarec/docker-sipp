@@ -16,6 +16,7 @@ The workflow pushes the tag of the current version again on each change to `mast
 
 - `sipp` in `/usr/local/bin`, with TLS (OpenSSL), SCTP, PCAP playback, and GSL distributions. These are the features of Ubuntu's `sip-tester` package. The `Dockerfile` lists the CMake options.
 - `tcpdump`, to capture packets in the container.
+- `tzdata`, so that the image has `/etc/localtime`, set to UTC. SIPp needs it to make a TCP connection again: see [Known issues](#known-issues).
 - The tools of the Ubuntu base image, such as `sh`, `getent`, `hostname`, `tail`, `stat`, and `base64`.
 - `tini` as the entry point. It reaps the processes that `docker exec` leaves behind, and it stops the container at once on `docker stop`. Don't add `--init` to `docker run` or `init: true` to Compose: the image already has an init.
 
@@ -79,7 +80,16 @@ You need Docker, Bash, and Python 3.
 tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-ubuntu2404
 ```
 
-The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support. Then it proves that SIPp sends RTP at the full rate for several calls at once:
+The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support.
+
+Then it proves that SIPp makes a TCP connection again when the peer closed it during a call:
+
+1. A SIPp UAS starts on a Docker network of its own, and listens on TCP.
+2. A SIPp UAC ([`tests/scenarios/uac-reconnect.xml`](tests/scenarios/uac-reconnect.xml)) calls it over TCP, with `-reconnect_close false -max_reconnect 1` and the message trace (`-trace_msg`).
+3. The UAS restarts during the call, which closes the connection. After its restart, it answers a BYE ([`tests/scenarios/uas-bye.xml`](tests/scenarios/uas-bye.xml)).
+4. The test fails if the UAC doesn't send its BYE on a new connection and get the 200 OK.
+
+Then it proves that SIPp sends RTP at the full rate for several calls at once:
 
 1. The test writes an A-law WAV file.
 2. A SIPp UAS ([`tests/scenarios/uas.xml`](tests/scenarios/uas.xml)) starts on a Docker network of its own.
@@ -135,6 +145,21 @@ With LTO, the link of SIPp 3.8.0's unit tests, `sipp_unittest`, fails. GCC check
 Without LTO, the build is the same as SIPp's own build. The shipped `sipp` binary loses the cross-file optimization of LTO, which doesn't matter for a test tool.
 
 A SIPp release that renames the test type, or puts it in an anonymous namespace, fixes it. Then remove `optimize=-lto` from the `Dockerfile`.
+
+### SIPp 3.8.0 doesn't make a TCP connection again without /etc/localtime
+
+The image installs `tzdata`, so that it has `/etc/localtime`. The Ubuntu base image has no `/etc/localtime`.
+
+SIPp has no file name of its own here. The bug is in how it reads `errno`, and a missing `/etc/localtime` is one way to change `errno` at the wrong time:
+
+1. With `-reconnect_close false`, SIPp keeps the calls of a TCP connection that the peer closed, and sends their next request on a new connection. The write of that request to the closed connection fails with `EPIPE`: `SIPpSocket::write_primitive()` in `src/socket.cpp`.
+2. With the message trace on (`-trace_msg`), `SIPpSocket::write()` then writes the failed message to the trace. The trace line starts with the time, from `CStat::formatTime()` in `src/stat.cpp`, which calls `localtime()`.
+3. Without `TZ`, glibc's `localtime()` checks its default time zone file, `/etc/localtime`, on each call. When the file is missing, glibc uses UTC, but each call sets `errno` to `ENOENT`.
+4. `SIPpSocket::write_error()` reads `errno`, not the error of the write. It makes the connection again only for `EPIPE`, `ECONNRESET`, `ECONNREFUSED`, or `ENOTCONN`. For `ENOENT`, it warns `Unable to send TCP message: No such file or directory`, and the call fails.
+
+Any other call that sets `errno` between the write and `write_error()` would have the same effect. Without the message trace, nothing calls `localtime()` there, and SIPp makes the connection again.
+
+To check whether a SIPp release fixes it, build the image without `tzdata` and run the [smoke test](#test-the-image): the TCP reconnection test fails with the bug. A release that passes `write_error()` the `errno` of the write fixes it. Then remove `tzdata` from the `Dockerfile`, unless the image needs it for another reason.
 
 ## License
 
