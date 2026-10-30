@@ -1,6 +1,6 @@
 # docker-sipp
 
-A Docker image of [SIPp](https://github.com/SIPp/sipp), built from the upstream release source on Ubuntu. MiaRec's end-to-end tests use it as the SIP and RTP call partner.
+A Docker image of [SIPp](https://github.com/SIPp/sipp), built on Ubuntu from MiaRec's fork, [miarec/sipp](https://github.com/miarec/sipp): an upstream release with MiaRec's fixes (see [Why the fork](#why-the-fork)). MiaRec's end-to-end tests use it as the SIP and RTP call partner.
 
 ## Image tags
 
@@ -8,7 +8,7 @@ A Docker image of [SIPp](https://github.com/SIPp/sipp), built from the upstream 
 ghcr.io/miarec/sipp:<SIPp version>-<base>
 ```
 
-For example, `ghcr.io/miarec/sipp:3.8.0-ubuntu2404` is SIPp 3.8.0 on Ubuntu 24.04. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-ubuntu2404-arm64`, are intermediate build results. Don't use them.
+For example, `ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404` is SIPp 3.8.0 with MiaRec's fixes of the fork's tag `v3.8.0-miarec.1`, on Ubuntu 24.04. The tags of the upstream releases, such as `3.8.0-ubuntu2404`, are from earlier versions of this repository. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-miarec.1-ubuntu2404-arm64`, are intermediate build results. Don't use them.
 
 The workflow pushes the tag of the current version again on each change to `master`, so that tag also gets the latest Ubuntu security updates. The tags of earlier versions stay in the registry, but no longer get updates.
 
@@ -27,7 +27,7 @@ The default command is `sleep infinity`. It keeps the container running, so that
 Run SIPp directly:
 
 ```bash
-docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-ubuntu2404 \
+docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404 \
   sipp 192.0.2.10:5060 -sn uac -m 1
 ```
 
@@ -38,11 +38,17 @@ Or start a long-running container and run SIPp in it:
 ```bash
 docker run --detach --name sipp --network host \
   --volume "$PWD/scenarios:/scenarios:ro" \
-  ghcr.io/miarec/sipp:3.8.0-ubuntu2404
+  ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404
 docker exec sipp sipp 192.0.2.10:5060 -sf /scenarios/uac.xml -m 1
 ```
 
 To capture packets in the container, run `tcpdump`. It needs the `NET_RAW` capability, which Docker grants by default.
+
+## Why the fork
+
+SIPp 3.8.0 doesn't take a multipart SDP that it sends, such as a SIPREC INVITE with its metadata, for an offer: it takes such a body only when it receives one. A SIPREC client that offers SRTP with two `a=crypto` lines then takes the answer for an offer, and keeps encrypting with the key of the first line, also when the answer takes the second one. The peer then drops every packet. The fork fixes it in commit [831f7a0](https://github.com/miarec/sipp/commit/831f7a05739e0673411223f28f68d2402084cf3f), with the regression test `regress/srtp-multipart-offer`, which the image build runs.
+
+The fork's tags are `v<upstream release>-miarec.<n>`. They aren't sent upstream.
 
 ## Why SIPp 3.8.0 and not Ubuntu's package
 
@@ -70,14 +76,14 @@ The script builds the image for the platform of your host, tags it as `ghcr.io/m
 
 To print the tag without a build, run `./build.sh --print-tag`.
 
-The build downloads the release tarball of SIPp, checks its SHA-256 hash, builds SIPp with CMake, and runs the SIPp unit tests.
+The build clones the fork at the tag `v<SIPP_VERSION>`, checks that the tag is at `SIPP_COMMIT`, builds SIPp with CMake, and runs the SIPp unit tests and the regression tests of the fork's fixes.
 
 ## Test the image
 
 You need Docker, Bash, and Python 3.
 
 ```bash
-tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-ubuntu2404
+tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404
 ```
 
 The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support.
@@ -119,16 +125,14 @@ The first push creates the GHCR package `miarec/sipp`. After the first push, che
 
 ## Bump the SIPp version
 
-1. Find the release on the [SIPp releases page](https://github.com/SIPp/sipp/releases).
-2. Get the SHA-256 hash of its source tarball, `sipp-<version>.tar.gz`. GitHub shows it as the digest of the release asset:
+1. In [miarec/sipp](https://github.com/miarec/sipp), bring the fix or the upstream release to `master`, and tag the commit `v<upstream release>-miarec.<n>`, such as `v3.8.0-miarec.2`. Push the tag to the fork only, never upstream.
+2. In the `Dockerfile`, change `SIPP_VERSION` to the tag without the `v`, and `SIPP_COMMIT` to the tag's commit, together:
 
    ```bash
-   gh release view v3.8.0 --repo SIPp/sipp --json assets \
-     --jq '.assets[] | select(.name | endswith(".tar.gz")) | .digest'
+   git ls-remote https://github.com/miarec/sipp 'refs/tags/v3.8.0-miarec.2^{}'
    ```
 
-   To check the hash yourself, download the tarball and run `sha256sum` on it.
-3. In the `Dockerfile`, change `SIPP_VERSION` and `SIPP_SHA256` together.
+3. Add the regression test of a new fix to the build of the `Dockerfile`, after `ctest`, as `regress/srtp-multipart-offer` is.
 4. Read the release notes for changes to the CMake options, and check whether the release fixes a [known issue](#known-issues). Remove the workaround of an issue that the release fixes.
 5. Build and test the image locally, and then open a pull request. The merge to `master` publishes the new tag. The tags of earlier versions stay in the registry.
 
@@ -163,4 +167,4 @@ To check whether a SIPp release fixes it, build the image without `tzdata` and r
 
 ## License
 
-The files in this repository are under the [MIT License](LICENSE). SIPp is under the GNU General Public License, version 2 or later. The image carries the SIPp source that it was built from, the release tarball, in `/usr/share/doc/sipp/`, and its `org.opencontainers.image.licenses` label names SIPp's license.
+The files in this repository are under the [MIT License](LICENSE). SIPp is under the GNU General Public License, version 2 or later. The image carries the SIPp source that it was built from, a tarball of the fork's tag without its git history, in `/usr/share/doc/sipp/`, and its `org.opencontainers.image.licenses` label names SIPp's license.
