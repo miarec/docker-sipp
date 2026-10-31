@@ -3,12 +3,12 @@
 #
 # The versions below are the only place that defines them. build.sh reads them
 # to name the image <SIPP_VERSION>-ubuntu<UBUNTU_VERSION without the dot>, for
-# example 3.8.0-miarec.1-ubuntu2404. SIPP_VERSION is a tag of the fork,
+# example 3.8.0-miarec.2-ubuntu2404. SIPP_VERSION is a tag of the fork,
 # v<SIPP_VERSION>, at the commit SIPP_COMMIT. To bump SIPp, change the two
 # together: see "Bump the SIPp version" in README.md.
 ARG UBUNTU_VERSION=24.04
-ARG SIPP_VERSION=3.8.0-miarec.1
-ARG SIPP_COMMIT=831f7a05739e0673411223f28f68d2402084cf3f
+ARG SIPP_VERSION=3.8.0-miarec.2
+ARG SIPP_COMMIT=97b1f0046a28264217ec14c3f34e01fba09f944b
 ARG SIPP_REPOSITORY=https://github.com/miarec/sipp
 
 FROM ubuntu:${UBUNTU_VERSION} AS build
@@ -50,7 +50,7 @@ RUN git clone --quiet --depth 1 --branch "v${SIPP_VERSION}" "${SIPP_REPOSITORY}"
 # here), SCTP, PCAP playback, and GSL distributions, with Debian's hardening
 # flags, without link-time optimization: see "Known issues" in README.md.
 # The unit tests use Ubuntu's libgtest-dev, not the gtest submodule. The
-# regression tests of the fork's fixes run too.
+# regression tests of the fork's fixes and options run too.
 RUN eval "$(DEB_BUILD_MAINT_OPTIONS="hardening=+all optimize=-lto" dpkg-buildflags --export=sh)" \
     && cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
@@ -61,6 +61,7 @@ RUN eval "$(DEB_BUILD_MAINT_OPTIONS="hardening=+all optimize=-lto" dpkg-buildfla
     && cmake --build build --target sipp sipp_unittest \
     && ctest --test-dir build --output-on-failure \
     && SIPP="$PWD/build/sipp" regress/srtp-multipart-offer/run | tee /dev/stderr | grep -q '^Testing srtp-multipart-offer: \.$' \
+    && SIPP="$PWD/build/sipp" regress/srtp-rtp-seq/run | tee /dev/stderr | grep -q '^Testing srtp-rtp-seq: \.$' \
     && strip build/sipp \
     && { build/sipp -v || [ $? -eq 99 ]; } | grep -F "SIPp v${SIPP_VERSION}-"
 
