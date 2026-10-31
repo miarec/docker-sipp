@@ -8,7 +8,7 @@ A Docker image of [SIPp](https://github.com/SIPp/sipp), built on Ubuntu from Mia
 ghcr.io/miarec/sipp:<SIPp version>-<base>
 ```
 
-For example, `ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404` is SIPp 3.8.0 with MiaRec's fixes of the fork's tag `v3.8.0-miarec.1`, on Ubuntu 24.04. The tags of the upstream releases, such as `3.8.0-ubuntu2404`, are from earlier versions of this repository. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-miarec.1-ubuntu2404-arm64`, are intermediate build results. Don't use them.
+For example, `ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404` is SIPp 3.8.0 with MiaRec's fixes of the fork's tag `v3.8.0-miarec.2`, on Ubuntu 24.04. The tags of the upstream releases, such as `3.8.0-ubuntu2404`, are from earlier versions of this repository. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-miarec.2-ubuntu2404-arm64`, are intermediate build results. Don't use them.
 
 The workflow pushes the tag of the current version again on each change to `master`, so that tag also gets the latest Ubuntu security updates. The tags of earlier versions stay in the registry, but no longer get updates.
 
@@ -27,7 +27,7 @@ The default command is `sleep infinity`. It keeps the container running, so that
 Run SIPp directly:
 
 ```bash
-docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404 \
+docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404 \
   sipp 192.0.2.10:5060 -sn uac -m 1
 ```
 
@@ -38,7 +38,7 @@ Or start a long-running container and run SIPp in it:
 ```bash
 docker run --detach --name sipp --network host \
   --volume "$PWD/scenarios:/scenarios:ro" \
-  ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404
+  ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404
 docker exec sipp sipp 192.0.2.10:5060 -sf /scenarios/uac.xml -m 1
 ```
 
@@ -47,6 +47,8 @@ To capture packets in the container, run `tcpdump`. It needs the `NET_RAW` capab
 ## Why the fork
 
 SIPp 3.8.0 doesn't take a multipart SDP that it sends, such as a SIPREC INVITE with its metadata, for an offer: it takes such a body only when it receives one. A SIPREC client that offers SRTP with two `a=crypto` lines then takes the answer for an offer, and keeps encrypting with the key of the first line, also when the answer takes the second one. The peer then drops every packet. The fork fixes it in commit [831f7a0](https://github.com/miarec/sipp/commit/831f7a05739e0673411223f28f68d2402084cf3f), with the regression test `regress/srtp-multipart-offer`, which the image build runs.
+
+SIPp 3.8.0 starts the RTP sequence number of each stream at 0, so its first wrap comes after 65536 packets, almost 22 minutes at 20 ms a packet. A test of a receiver's rollover counter (RFC 3711, section 3.3.1) then takes that long. The fork adds the option `-rtp_seq <n>`, the first sequence number of each stream, in commit [97b1f00](https://github.com/miarec/sipp/commit/97b1f0046a28264217ec14c3f34e01fba09f944b), with the regression test `regress/srtp-rtp-seq`, which the image build runs.
 
 The fork's tags are `v<upstream release>-miarec.<n>`. They aren't sent upstream.
 
@@ -83,7 +85,7 @@ The build clones the fork at the tag `v<SIPP_VERSION>`, checks that the tag is a
 You need Docker, Bash, and Python 3.
 
 ```bash
-tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-miarec.1-ubuntu2404
+tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404
 ```
 
 The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support.
