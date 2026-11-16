@@ -8,7 +8,7 @@ A Docker image of [SIPp](https://github.com/SIPp/sipp), built on Ubuntu from Mia
 ghcr.io/miarec/sipp:<SIPp version>-<base>
 ```
 
-For example, `ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404` is SIPp 3.8.0 with MiaRec's fixes of the fork's tag `v3.8.0-miarec.2`, on Ubuntu 24.04. The tags of the upstream releases, such as `3.8.0-ubuntu2404`, are from earlier versions of this repository. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-miarec.2-ubuntu2404-arm64`, are intermediate build results. Don't use them.
+For example, `ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2604` is SIPp 3.8.0 with MiaRec's fixes of the fork's tag `v3.8.0-miarec.2`, on Ubuntu 26.04. The tags of Ubuntu 24.04, such as `3.8.0-miarec.2-ubuntu2404`, and of the upstream releases, such as `3.8.0-ubuntu2404`, are from earlier versions of this repository. Each tag is multi-arch: `linux/amd64` and `linux/arm64`. The per-architecture tags, such as `3.8.0-miarec.2-ubuntu2604-arm64`, are intermediate build results. Don't use them.
 
 The workflow pushes the tag of the current version again on each change to `master`, so that tag also gets the latest Ubuntu security updates. The tags of earlier versions stay in the registry, but no longer get updates.
 
@@ -27,7 +27,7 @@ The default command is `sleep infinity`. It keeps the container running, so that
 Run SIPp directly:
 
 ```bash
-docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404 \
+docker run --rm --network host ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2604 \
   sipp 192.0.2.10:5060 -sn uac -m 1
 ```
 
@@ -38,7 +38,7 @@ Or start a long-running container and run SIPp in it:
 ```bash
 docker run --detach --name sipp --network host \
   --volume "$PWD/scenarios:/scenarios:ro" \
-  ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404
+  ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2604
 docker exec sipp sipp 192.0.2.10:5060 -sf /scenarios/uac.xml -m 1
 ```
 
@@ -54,7 +54,7 @@ The fork's tags are `v<upstream release>-miarec.<n>`. They aren't sent upstream.
 
 ## Why SIPp 3.8.0 and not Ubuntu's package
 
-Ubuntu 24.04 packages SIPp 3.7.2 as `sip-tester`. SIPp 3.7.0 to 3.7.2 limit how fast one process sends `rtp_stream` RTP. After each packet, `rtpstream_playrtptask()` in `src/rtpstream.cpp` waits in `select()` for up to 10 ms, and it holds the process-wide `uacAudioMutex` while it waits. One SIPp process therefore sends at most about 100 `rtp_stream` packets a second in total, whatever the number of calls or `-rtp_threadtasks`. A call with a 20 ms packet time needs 50 packets a second, so more than two calls at once get less than that.
+Ubuntu 26.04 packages SIPp 3.7.7 as `sip-tester`, without the fixes of SIPp 3.8.0 and of the fork. Ubuntu 24.04 packages SIPp 3.7.2. SIPp 3.7.0 to 3.7.2 limit how fast one process sends `rtp_stream` RTP. After each packet, `rtpstream_playrtptask()` in `src/rtpstream.cpp` waits in `select()` for up to 10 ms, and it holds the process-wide `uacAudioMutex` while it waits. One SIPp process therefore sends at most about 100 `rtp_stream` packets a second in total, whatever the number of calls or `-rtp_threadtasks`. A call with a 20 ms packet time needs 50 packets a second, so more than two calls at once get less than that.
 
 SIPp 3.7.3 fixed the bug in commit [54f008c6](https://github.com/SIPp/sipp/commit/54f008c6ea94806535bbc052bdfc9da69e1c9ad8), "Don't block on select() in rtpstream_playrtptask". The smoke test proves that the bug is absent: see [Test the image](#test-the-image).
 
@@ -85,7 +85,7 @@ The build clones the fork at the tag `v<SIPP_VERSION>`, checks that the tag is a
 You need Docker, Bash, and Python 3.
 
 ```bash
-tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2404
+tests/smoke-test.sh ghcr.io/miarec/sipp:3.8.0-miarec.2-ubuntu2604
 ```
 
 The test checks that the image has the tools that the end-to-end tests run, and that SIPp has TLS, SCTP, and PCAP support.
@@ -138,7 +138,7 @@ The first push creates the GHCR package `miarec/sipp`. After the first push, che
 4. Read the release notes for changes to the CMake options, and check whether the release fixes a [known issue](#known-issues). Remove the workaround of an issue that the release fixes.
 5. Build and test the image locally, and then open a pull request. The merge to `master` publishes the new tag. The tags of earlier versions stay in the registry.
 
-To change the Ubuntu version, change `UBUNTU_VERSION`. Check the names of the runtime library packages in the `Dockerfile`, because they can change between Ubuntu releases. For example, Ubuntu 24.04 renamed `libssl3` to `libssl3t64`.
+To change the Ubuntu version, change `UBUNTU_VERSION`. Check the names of the runtime library packages in the `Dockerfile`, because they can change between Ubuntu releases. For example, Ubuntu 24.04 renamed `libssl3` to `libssl3t64`, and Ubuntu 26.04 has `libgsl28` in place of `libgsl27`.
 
 ## Known issues
 
