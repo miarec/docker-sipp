@@ -3,10 +3,10 @@
 #
 # The versions below are the only place that defines them. build.sh reads them
 # to name the image <SIPP_VERSION>-ubuntu<UBUNTU_VERSION without the dot>, for
-# example 3.8.0-miarec.2-ubuntu2404. SIPP_VERSION is a tag of the fork,
+# example 3.8.0-miarec.2-ubuntu2604. SIPP_VERSION is a tag of the fork,
 # v<SIPP_VERSION>, at the commit SIPP_COMMIT. To bump SIPp, change the two
 # together: see "Bump the SIPp version" in README.md.
-ARG UBUNTU_VERSION=24.04
+ARG UBUNTU_VERSION=26.04
 ARG SIPP_VERSION=3.8.0-miarec.2
 ARG SIPP_COMMIT=97b1f0046a28264217ec14c3f34e01fba09f944b
 ARG SIPP_REPOSITORY=https://github.com/miarec/sipp
@@ -78,7 +78,7 @@ ARG SIPP_VERSION
 # hadolint ignore=DL3008
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        libgsl27 \
+        libgsl28 \
         libpcap0.8t64 \
         libsctp1 \
         libssl3t64 \
